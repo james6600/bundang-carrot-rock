@@ -446,25 +446,48 @@ body{
   padding:0;
   white-space:normal;
 }
-.jp-legend{
+.jp-filterbar{
   position:sticky;
   top:-1px;
-  z-index:3;
-  display:flex;
+  z-index:4;
+  display:grid;
+  grid-template-columns:repeat(4,minmax(0,1fr));
   gap:6px;
   padding:8px 0 10px;
   background:linear-gradient(180deg,#091e35 75%,rgba(9,30,53,0));
 }
-.jp-legend span{
-  font-size:.72rem;
+.jp-filter{
+  appearance:none;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.045);
+  color:#91a7bb;
+  min-height:38px;
+  padding:6px 4px;
+  border-radius:10px;
+  font-size:.71rem;
+  line-height:1.1;
   font-weight:900;
-  padding:5px 8px;
-  border-radius:999px;
-  border:1px solid rgba(255,255,255,.1);
 }
-.jp-legend .l-original{color:#f4f8fb;background:rgba(255,255,255,.055)}
-.jp-legend .l-reading{color:#ffad7f;background:rgba(255,90,22,.09)}
-.jp-legend .l-meaning{color:#a9c8df;background:rgba(40,126,184,.10)}
+.jp-filter:active{transform:scale(.97)}
+.jp-filter.active,
+.jp-filter.active-all{
+  color:#fff;
+  background:#ff5a16;
+  border-color:#ff7139;
+  box-shadow:0 6px 16px rgba(255,90,22,.18);
+}
+.jp-filter[data-filter="original"].active{
+  background:#263c55;
+  border-color:#49627d;
+}
+.jp-filter[data-filter="reading"].active{
+  background:#d94d13;
+  border-color:#ff7139;
+}
+.jp-filter[data-filter="meaning"].active{
+  background:#17608f;
+  border-color:#3a83b0;
+}
 .jp-block{
   margin-bottom:10px;
   padding:13px 13px 12px;
@@ -479,6 +502,7 @@ body{
   gap:9px;
   align-items:start;
 }
+.jp-row[hidden]{display:none !important}
 .jp-row + .jp-row{
   margin-top:9px;
   padding-top:9px;
@@ -520,6 +544,8 @@ body{
   line-height:1.68;
 }
 @media(max-width:430px){
+  .jp-filterbar{gap:5px}
+  .jp-filter{font-size:.67rem;min-height:38px;padding:5px 2px}
   .jp-block{padding:12px 11px}
   .jp-row{grid-template-columns:32px minmax(0,1fr);gap:8px}
   .jp-original .jp-copy{font-size:1rem}
@@ -756,10 +782,11 @@ function renderJapaneseGuide(blocks) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
   return `
-    <div class="jp-legend">
-      <span class="l-original">日本語 원문</span>
-      <span class="l-reading">한글 발음</span>
-      <span class="l-meaning">의미</span>
+    <div class="jp-filterbar" role="group" aria-label="가사 표시 선택">
+      <button type="button" class="jp-filter active-all" data-filter="all" aria-pressed="true">전체</button>
+      <button type="button" class="jp-filter" data-filter="original" aria-pressed="false">일본어</button>
+      <button type="button" class="jp-filter" data-filter="reading" aria-pressed="false">한글 발음</button>
+      <button type="button" class="jp-filter" data-filter="meaning" aria-pressed="false">한국어 뜻</button>
     </div>
     ${blocks.map(block => `
       <section class="jp-block">
@@ -780,6 +807,74 @@ function renderJapaneseGuide(blocks) {
   `;
 }
 
+
+function initJapaneseFilters() {
+  const bar = document.querySelector(".jp-filterbar");
+  if (!bar) return;
+
+  const buttons = Array.from(bar.querySelectorAll(".jp-filter"));
+  const allBtn = buttons.find(btn => btn.dataset.filter === "all");
+  const langBtns = buttons.filter(btn => btn.dataset.filter !== "all");
+
+  const selectors = {
+    original: ".jp-original",
+    reading: ".jp-reading",
+    meaning: ".jp-meaning"
+  };
+
+  let selected = new Set(["original", "reading", "meaning"]);
+
+  function setPressed(btn, on) {
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+
+  function renderSelection() {
+    const isAll = selected.size === 3;
+
+    Object.entries(selectors).forEach(([key, selector]) => {
+      document.querySelectorAll(selector).forEach(row => {
+        row.hidden = !selected.has(key);
+      });
+    });
+
+    setPressed(allBtn, isAll);
+    allBtn.classList.toggle("active-all", isAll);
+
+    langBtns.forEach(btn => {
+      setPressed(btn, !isAll && selected.has(btn.dataset.filter));
+    });
+  }
+
+  allBtn.addEventListener("click", () => {
+    selected = new Set(["original", "reading", "meaning"]);
+    renderSelection();
+  });
+
+  langBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.filter;
+
+      // 전체 상태에서 개별 버튼을 누르면 해당 항목만 보이게 시작.
+      if (selected.size === 3) {
+        selected = new Set([key]);
+      } else if (selected.has(key)) {
+        selected.delete(key);
+        // 아무것도 남지 않으면 다시 전체로.
+        if (selected.size === 0) {
+          selected = new Set(["original", "reading", "meaning"]);
+        }
+      } else {
+        selected.add(key);
+      }
+
+      renderSelection();
+    });
+  });
+
+  renderSelection();
+}
+
 function openSong(song) {
   document.getElementById("modalTitle").textContent = song.title;
   document.getElementById("modalArtist").textContent = song.artist;
@@ -796,6 +891,7 @@ const lyric = USER_LYRICS[song.title];
     lyricsLabel.textContent = "일본어 원문 · 한글 발음 · 의미";
     lyricsText.classList.add("jp-mode");
     lyricsText.innerHTML = renderJapaneseGuide(guide);
+    initJapaneseFilters();
   } else {
     lyricsLabel.textContent = lyric ? lyric.label : "가사";
     lyricsText.classList.remove("jp-mode");
@@ -870,11 +966,11 @@ document.getElementById("postComment").onclick = () => {
 };
 renderComments();
 
-const DEFAULT_REQS = [{"title": "나는 나비", "artist": "YB", "votes": 18}, {"title": "Don't Look Back in Anger", "artist": "Oasis", "votes": 13}, {"title": "입춘", "artist": "한로로", "votes": 11}, {"title": "봄을 그리다", "artist": "어반자카파", "votes": 8}];
+const DEFAULT_REQS = [{"title": "나는 나비", "artist": "YB", "votes": 0}, {"title": "Don't Look Back in Anger", "artist": "Oasis", "votes": 0}, {"title": "입춘", "artist": "한로로", "votes": 0}, {"title": "봄을 그리다", "artist": "어반자카파", "votes": 0}];
 function loadReqs() {
-  return JSON.parse(localStorage.getItem("bcr_requests") || "null") || DEFAULT_REQS;
+  return JSON.parse(localStorage.getItem("bcr_requests_v2") || "null") || DEFAULT_REQS;
 }
-function saveReqs(v) { localStorage.setItem("bcr_requests", JSON.stringify(v)); }
+function saveReqs(v) { localStorage.setItem("bcr_requests_v2", JSON.stringify(v)); }
 function renderReqs() {
   const box = document.getElementById("requests");
   const reqs = loadReqs().slice().sort((a,b)=>b.votes-a.votes);
@@ -897,7 +993,7 @@ document.getElementById("addRequest").onclick = () => {
   const artist = document.getElementById("reqArtist").value.trim();
   if (!title) return alert("곡명을 입력해주세요.");
   const reqs = loadReqs();
-  reqs.push({title, artist:artist || "아티스트 미입력", votes:1});
+  reqs.push({title, artist:artist || "아티스트 미입력", votes:0});
   saveReqs(reqs);
   document.getElementById("reqTitle").value = "";
   document.getElementById("reqArtist").value = "";
